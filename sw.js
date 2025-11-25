@@ -1,10 +1,15 @@
-const CACHE_NAME = 'signer-pdf-v1'; // Version du cache
+const CACHE_NAME = 'signer-pdf-v1'; 
+const REPO_NAME = '/Signature_pdf_pwa/'; // 🚨 AJOUT DE LA VARIABLE DE DÉPÔT
+
 const urlsToCache = [
-  './index.html',
-  './manifest.json',
-  './icon-192x192.png', 
-  './icon-512x512.png',
-  'https://cdn.tailwindcss.com', // Mise en cache des bibliothèques externes
+  // 🟢 CORRECTION : Utilisation du chemin absolu avec le nom du dépôt
+  REPO_NAME + 'index.html',
+  REPO_NAME + 'manifest.json',
+  REPO_NAME + 'icon-192x192.png', 
+  REPO_NAME + 'icon-512x512.png',
+  
+  // Chemins externes (restent inchangés)
+  'https://cdn.tailwindcss.com', 
   'https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap',
   'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'
 ];
@@ -19,11 +24,11 @@ self.addEventListener('install', event => {
         return cache.addAll(urlsToCache);
       })
   );
-  // Force l'activation immédiate pour une utilisation rapide
+  // Force l'activation immédiate
   self.skipWaiting();
 });
 
-// Événement d'activation: nettoyage des anciens caches (pour les mises à jour futures)
+// Événement d'activation: nettoyage des anciens caches
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(cacheNames => {
@@ -50,8 +55,9 @@ self.addEventListener('fetch', event => {
         if (response) {
           return response;
         }
-        // Sinon, tente de récupérer la ressource via le réseau (pour les ressources non listées)
+        // Sinon, tente de récupérer la ressource via le réseau
         return fetch(event.request);
       })
   );
 });
+ 
