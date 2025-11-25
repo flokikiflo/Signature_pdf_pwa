@@ -2,7 +2,10 @@
   "name": "Mon Signataire PDF",
   "short_name": "SignerPDF",
   "description": "Application pour signer des images et les exporter en PDF.",
-  "start_url": "./index.html",
+  
+  // 🎯 CORRECTION CLÉ : Utilisation du chemin absolu avec le nom de votre dépôt.
+  "start_url": "/Signature_pdf_pwa/index.html", 
+  
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#ffffff",
