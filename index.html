@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Signer et Exporter en PDF</title>
+
+    <link rel="manifest" href="manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f7f7;
+        }
+        /* Style pour la zone de signature/document */
+        #canvas-container {
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+            background-color: white;
+            border-radius: 0.5rem;
+            overflow: hidden; 
+        }
+        /* Le canvas prend la taille de son conteneur */
+        #documentCanvas {
+            touch-action: none; 
+        }
+    </style>
+</head>
+<body class="p-4 sm:p-6 flex flex-col items-center min-h-screen">
+
+    <div class="w-full max-w-4xl">
+        <h1 class="text-3xl font-bold text-gray-800 mb-6 text-center">
+            Signer un Document
+        </h1>
+
+        <div class="mb-6 p-4 bg-white rounded-lg shadow">
+            <label for="fileInput" class="block text-lg font-semibold text-gray-700 mb-2">1. Choisissez un Document (Image)</label>
+            <input type="file" id="fileInput" accept="image/*" class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer">
+        </div>
+
+        <div id="canvas-container" class="mb-6 w-full flex justify-center">
+            <canvas id="documentCanvas"></canvas>
+            <p id="placeholderText" class="p-10 text-center text-gray-500 italic">
+                Chargez un document (photo ou image) pour commencer la signature.
+            </p>
+        </div>
+        
+        <div id="actionsContainer" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <button id="clearSignatureBtn" class="w-full py-3 px-4 bg-yellow-500 text-white font-bold rounded-xl shadow-lg hover:bg-yellow-600 transition duration-150 transform hover:scale-[1.01] opacity-50 cursor-not-allowed" disabled>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline mr-2" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 000-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
+                </svg>
+                Effacer la Signature
+            </button>
+
+            <button id="savePdfBtn" class="w-full py-3 px-4 bg-indigo-600 text-white font-bold rounded-xl shadow-lg hover:bg-indigo-700 transition duration-150 transform hover:scale-[1.01] opacity-50 cursor-not-allowed" disabled>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline mr-2" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M5 4V3a1 1 0 00-1 1v10.586a2 2 0 00.586 1.414L7 18.414A2 2 0 008.414 19H15a1 1 0 001-1V5a1 1 0 00-1-1H5zm1 4a1 1 0 000 2h8a1 1 0 100-2H6zm0 3a1 1 0 100 2h8a1 1 0 100-2H6z" clip-rule="evenodd" />
+                </svg>
+                Enregistrer en PDF
+            </button>
+        </div>
+        
+        <div id="messageBox" class="fixed bottom-4 left-1/2 transform -translate-x-1/2 p-3 bg-red-600 text-white rounded-lg shadow-xl hidden transition-opacity duration-300 z-50"></div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    
+    <script>
+        // Initialisation de jsPDF après le chargement du script
+        const { jsPDF } = window.jspdf;
+        
+        // Variables globales
+        const fileInput = document.getElementById('fileInput');
+        const canvas = document.getElementById('documentCanvas');
+        const ctx = canvas.getContext('2d');
+        const clearBtn = document.getElementById('clearSignatureBtn');
+        const saveBtn = document.getElementById('savePdfBtn');
+        const placeholderText = document.getElementById('placeholderText');
+        const container = document.getElementById('canvas-container');
+        const messageBox = document.getElementById('messageBox');
+
+        let isDrawing = false;
+        let lastPoint = null;
+        let originalImage = null; 
+        
+        // --- Fonctionnalités d'état et d'interface ---
+
+        /** Affiche un message temporaire à l'utilisateur (remplace alert) */
+        function showMessage(text, isError = false) {
+            messageBox.textContent = text;
+            messageBox.className = `fixed bottom-4 left-1/2 transform -translate-x-1/2 p-3 text-white rounded-lg shadow-xl transition-opacity duration-300 z-50 ${isError ? 'bg-red-600' : 'bg-green-600'}`;
+            messageBox.style.display = 'block';
+            messageBox.style.opacity = '1';
+            
+            setTimeout(() => {
+                messageBox.style.opacity = '0';
+                setTimeout(() => messageBox.style.display = 'none', 300);
+            }, 3000);
+        }
+
+        /** Met à jour l'état des boutons */
+        function updateButtonState(isEnabled) {
+            const className = "opacity-100 cursor-pointer";
+            const disabledClass = "opacity-50 cursor-not-allowed";
+            
+            clearBtn.disabled = !isEnabled;
+            saveBtn.disabled = !isEnabled;
+
+            clearBtn.classList.toggle(className, isEnabled);
+            clearBtn.classList.toggle(disabledClass, !isEnabled);
+            
+            saveBtn.classList.toggle(className, isEnabled);
+            saveBtn.classList.toggle(disabledClass, !isEnabled);
+        }
+
+        // --- Gestion du Document (Image) ---
+
+        /** Charge l'image sélectionnée sur le canvas */
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file || !file.type.startsWith('image/')) {
+                showMessage("Veuillez sélectionner un fichier image valide.", true);
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = new Image();
+                img.onload = () => {
+                    originalImage = img;
+                    resizeCanvasAndDrawImage();
+                    placeholderText.style.display = 'none';
+                    updateButtonState(true);
+                    showMessage("Document chargé avec succès. Vous pouvez signer maintenant.");
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+
+        /** Redimensionne le canvas pour adapter l'image tout en remplissant le conteneur */
+        function resizeCanvasAndDrawImage() {
+            if (!originalImage) return;
+
+            // Définir la taille maximale du conteneur
+            const maxWidth = container.clientWidth;
+            
+            const imageRatio = originalImage.width / originalImage.height;
+            let canvasWidth = maxWidth;
+            let canvasHeight = canvasWidth / imageRatio;
+            
+            canvas.width = canvasWidth;
+            canvas.height = canvasHeight;
+
+            // Masquer le canvas si l'image est chargée
+            canvas.style.display = 'block';
+
+            // Dessiner l'image en fond sur toute la taille du canvas
+            ctx.drawImage(originalImage, 0, 0, canvas.width, canvas.height);
+
+            // Préparer le contexte de dessin pour la signature
+            setupDrawingContext();
+        }
+
+        /** Configure le style du trait pour la signature */
+        function setupDrawingContext() {
+            ctx.strokeStyle = 'red'; // Couleur du stylo
+            ctx.lineWidth = 3;       // Épaisseur du trait
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+        }
+
+        /** Gestion du redimensionnement de la fenêtre pour la réactivité */
+        window.addEventListener('resize', () => {
+            if (originalImage) {
+                // Redimensionner sans conserver la signature par souci de simplicité
+                resizeCanvasAndDrawImage();
+            }
+        });
+
+
+        // --- Gestion de la Signature (Dessin) ---
+
+        /** Calcule la position relative du pointeur/doigt sur le canvas */
+        function getRelativePoint(e) {
+            const rect = canvas.getBoundingClientRect();
+            let x, y;
+
+            if (e.touches && e.touches.length > 0) {
+                // Événement tactile
+                x = e.touches[0].clientX - rect.left;
+                y = e.touches[0].clientY - rect.top;
+            } else {
+                // Événement souris
+                x = e.clientX - rect.left;
+                y = e.clientY - rect.top;
+            }
+            
+            // Assurez-vous que les coordonnées sont mises à l'échelle pour le canvas
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            
+            return {
+                x: x * scaleX,
+                y: y * scaleY
+            };
+        }
+
+        /** Démarre le dessin */
+        function startDrawing(e) {
+            if (!originalImage) return; // Ne pas dessiner sans image chargée
+            e.preventDefault();
+            isDrawing = true;
+            lastPoint = getRelativePoint(e);
+        }
+
+        /** Dessine le trait */
+        function draw(e) {
+            if (!isDrawing) return;
+            e.preventDefault();
+            
+            const currentPoint = getRelativePoint(e);
+
+            ctx.beginPath();
+            ctx.moveTo(lastPoint.x, lastPoint.y);
+            ctx.lineTo(currentPoint.x, currentPoint.y);
+            ctx.stroke();
+
+            lastPoint = currentPoint;
+        }
+
+        /** Arrête le dessin */
+        function stopDrawing(e) {
+            if (!isDrawing) return;
+            isDrawing = false;
+        }
+
+        // Événements souris pour ordinateur
+        canvas.addEventListener('mousedown', startDrawing);
+        canvas.addEventListener('mousemove', draw);
+        canvas.addEventListener('mouseup', stopDrawing);
+        canvas.addEventListener('mouseleave', stopDrawing);
+
+        // Événements tactiles pour téléphone (priorité mobile)
+        canvas.addEventListener('touchstart', startDrawing);
+        canvas.addEventListener('touchmove', draw);
+        canvas.addEventListener('touchend', stopDrawing);
+        canvas.addEventListener('touchcancel', stopDrawing);
+
+        /** Efface uniquement la signature (en redessinant l'image de base) */
+        clearBtn.addEventListener('click', () => {
+            if (!originalImage) return;
+            ctx.clearRect(0, 0, canvas.width, canvas.height); // Effacer tout
+            ctx.drawImage(originalImage, 0, 0, canvas.width, canvas.height); // Redessiner l'image
+            setupDrawingContext(); // Réinitialiser le stylo
+            showMessage("Signature effacée. Vous pouvez recommencer à signer.");
+        });
+
+
+        // --- Enregistrement en PDF ---
+
+        saveBtn.addEventListener('click', () => {
+            if (!originalImage) {
+                showMessage("Veuillez charger un document avant d'enregistrer.", true);
+                return;
+            }
+
+            // 1. Convertir le contenu du canvas en Data URL (PNG)
+            const imgData = canvas.toDataURL('image/png');
+            
+            // 2. Initialiser jsPDF
+            const imgWidth = originalImage.width;
+            const imgHeight = originalImage.height;
+
+            const orientation = imgWidth > imgHeight ? 'l' : 'p';
+            
+            const pdf = new jsPDF(orientation, 'px', [imgWidth, imgHeight]);
+            
+            // 3. Ajouter l'image du canvas au PDF
+            pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight);
+
+            // 4. Télécharger le fichier
+            const dateStr = new Date().toISOString().slice(0, 10);
+            pdf.save(`Document_Signe_${dateStr}.pdf`);
+            
+            showMessage("Document signé et enregistré au format PDF !");
+        });
+        
+        // --- ENREGISTREMENT DU SERVICE WORKER (AJOUT PWA) ---
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js')
+                    .then(registration => {
+                        console.log('ServiceWorker enregistré avec succès: ', registration.scope);
+                    })
+                    .catch(err => {
+                        console.log('Échec de l\'enregistrement du ServiceWorker: ', err);
+                    });
+            });
+        }
+        // ----------------------------------------------------
+        
+        // Initialisation au chargement
+        window.onload = () => {
+            // S'assurer que les boutons sont désactivés au départ
+            updateButtonState(false);
+        };
+
+    </script>
+</body>
+</html>
