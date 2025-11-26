@@ -1,4 +1,4 @@
-const CACHE_NAME = 'signer-pdf-v1'; 
+const CACHE_NAME = 'signer-pdf-v2'; 
 const REPO_NAME = '/Signature_pdf_pwa/'; // 🚨 AJOUT DE LA VARIABLE DE DÉPÔT
 
 const urlsToCache = [
